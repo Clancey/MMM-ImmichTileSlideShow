@@ -28,10 +28,12 @@ const immichApi = {
       albumInfo: '/albums/{id}',
       memoryLane: '/assets/memory-lane',
       assetInfo: '/assets/{id}',
-      assetDownload: '/assets/{id}/thumbnail?size=preview',
+      // Use smaller thumbnails to lighten browser load on low-power devices
+      assetDownload: '/assets/{id}/thumbnail?size=thumbnail',
       serverInfoUrl: '/server-info/version',
       search: 'NOT SUPPORTED',
-      videoStream: '/assets/{id}/original'
+      // Use Immich's encoded video stream endpoint to reduce client load
+      videoStream: '/assets/{id}/video'
     },
     v1_118: {
       previousVersion: 'v1_106',
@@ -39,10 +41,12 @@ const immichApi = {
       albumInfo: '/albums/{id}',
       memoryLane: '/assets/memory-lane',
       assetInfo: '/assets/{id}',
-      assetDownload: '/assets/{id}/thumbnail?size=preview',
+      // Use smaller thumbnails to lighten browser load on low-power devices
+      assetDownload: '/assets/{id}/thumbnail?size=thumbnail',
       serverInfoUrl: '/server/version',
       search: '/search/smart',
-      videoStream: '/assets/{id}/original'
+      // Use Immich's encoded video stream endpoint to reduce client load
+      videoStream: '/assets/{id}/video'
     },
     v1_133: {
       previousVersion: 'v1_118',
@@ -50,11 +54,13 @@ const immichApi = {
       albumInfo: '/albums/{id}',
       memoryLane: '/memories',
       assetInfo: '/assets/{id}',
-      assetDownload: '/assets/{id}/thumbnail?size=preview',
+      // Use smaller thumbnails to lighten browser load on low-power devices
+      assetDownload: '/assets/{id}/thumbnail?size=thumbnail',
       serverInfoUrl: '/server/version',
       search: '/search/smart',
       randomSearch: '/search/random',
-      videoStream: '/assets/{id}/original'
+      // Use Immich's encoded video stream endpoint to reduce client load
+      videoStream: '/assets/{id}/video'
     }
   },
 

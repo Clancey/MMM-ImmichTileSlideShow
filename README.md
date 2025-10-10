@@ -2,6 +2,8 @@
 
 A tile-based slideshow for MagicMirror² that displays a configurable grid of images. It is designed to fetch photos and (optionally) videos from [Immich (self-hosted photo app)](http://immch.app/) via the module's `node_helper` and internal proxies, but it also ships with placeholder tiles so it renders out-of-the-box with zero configuration.
 
+Performance note (Raspberry Pi / Chromium): this module now requests Immich thumbnails for images (`/assets/{id}/thumbnail?size=thumbnail`) and the encoded video stream (`/assets/{id}/video`) instead of full originals. This significantly reduces bandwidth and CPU usage on low-power devices.
+
 - Auto grid layout (auto tile count/gap, fit: cover/contain)
 - Rotates a random tile at a fixed interval with configurable transitions (fade/slide)
 - Optional captions
@@ -181,8 +183,11 @@ See `examples/config.example.js` for another snippet.
 
 The module negotiates Immich API version and sets up internal proxies for thumbnails and (when enabled) basic video playback. Supported modes: memory, album, search, random, anniversary. It filters/sorts assets server-side and streams optimized URLs to the client for smooth tile updates.
 
+- Images: served as Immich thumbnails (size `thumbnail`) through the module proxy
+- Videos: served as Immich encoded video (`/assets/{id}/video`) with a poster from the image thumbnail
+
 Notes:
-- Video support uses Immich's asset video endpoint via the module's proxy. Depending on your Immich version and codec support on your device, playback may fall back to showing the poster image.
+- Video support uses Immich's encoded video endpoint via the module's proxy. Depending on your Immich version and codec support on your device, playback may fall back to showing the poster image.
 - If no Immich configuration is provided, the module renders placeholders to verify UI.
 
 ## Troubleshooting
