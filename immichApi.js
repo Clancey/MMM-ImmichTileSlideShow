@@ -145,7 +145,10 @@ const immichApi = {
             const p = urls[i];
             try {
               if (this.debugOn) Log.info(LOG_PREFIX + `[debug] image fetch try ${i + 1}/${urls.length}: ${p}`);
-              const upstream = await this.http.get(p, { responseType: 'stream', headers: { Accept: req.headers['accept'] || 'application/octet-stream' } });
+              const headers = { Accept: req.headers['accept'] || 'application/octet-stream' };
+              if (req.headers['if-none-match']) headers['If-None-Match'] = req.headers['if-none-match'];
+              if (req.headers['if-modified-since']) headers['If-Modified-Since'] = req.headers['if-modified-since'];
+              const upstream = await this.http.get(p, { responseType: 'stream', headers });
               if ((upstream.status >= 200 && upstream.status < 300) || upstream.status === 304) {
                 // Forward upstream headers and status
                 for (const [k, v] of Object.entries(upstream.headers || {})) {

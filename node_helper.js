@@ -31,6 +31,8 @@ function dlog(ctx, ...args) {
  * @property {string} [posterSrc]
  * @property {string} [takenAt]
  * @property {string} [albumName]
+ * @property {number} [w]
+ * @property {number} [h]
  */
 
 module.exports = NodeHelper.create({
@@ -146,6 +148,16 @@ function toTileImage(img, immichApi, isVideo) {
   const title = (img.originalFileName || '').replace(/\.[^.]+$/, '');
   const takenAt = (img.exifInfo && img.exifInfo.dateTimeOriginal) || img.fileCreatedAt || img.fileModifiedAt || null;
   const albumName = img.albumName || null;
+  // Try to extract dimensions when available to avoid extra probing in the browser
+  const exif = img && img.exifInfo ? img.exifInfo : {};
+  const w = Number(
+    exif.imageWidth || exif.ImageWidth || exif.exifImageWidth || exif.PixelXDimension || exif.pixelXDimension ||
+    img.width || img.w || null
+  ) || null;
+  const h = Number(
+    exif.imageHeight || exif.ImageHeight || exif.exifImageHeight || exif.PixelYDimension || exif.pixelYDimension ||
+    img.height || img.h || null
+  ) || null;
   if (isVideo) {
     return {
       kind: 'video',
@@ -153,10 +165,12 @@ function toTileImage(img, immichApi, isVideo) {
       posterSrc: immichApi.getImageLink(img.id),
       title,
       takenAt,
-      albumName
+      albumName,
+      w,
+      h
     };
   }
-  return { kind: 'image', src: immichApi.getImageLink(img.id), title, takenAt, albumName };
+  return { kind: 'image', src: immichApi.getImageLink(img.id), title, takenAt, albumName, w, h };
 }
 
 /**
@@ -289,6 +303,13 @@ async function _loadFromImmichImpl(context) {
     return toTileImage(img, immichApi, isVideo);
   });
   dlog(context, 'mapped tiles', tiles && tiles.length);
+
+  // Bound client memory: cap media pool size
+  const poolCap = Math.max(10, Number(context.config.maxMediaPool || 0) || 0);
+  if (poolCap > 0 && tiles.length > poolCap) {
+    tiles = tiles.slice(0, poolCap);
+    dlog(context, 'capped tiles to poolCap', poolCap);
+  }
 
   // Sort
   switch (cfg.sortImagesBy) {

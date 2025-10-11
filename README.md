@@ -153,6 +153,11 @@ See `examples/config.example.js` for another snippet.
 | `scrollSpeedPxPerSec` | number | `18` | Vertical scroll speed in pixels per second. |
 | `immichConfigs` | array | `[]` | Immich connection settings array. Provide `url`, `apiKey`, and `mode`. |
 | `activeImmichConfigIndex` | number | `0` | Index into `immichConfigs` to use. |
+| `lightweightMode` | boolean | `false` | Pi-optimized mode: reduces tiles and media pool caps, disables videos by default (unless explicitly set), shortens transitions, and periodically clears internal caches. |
+| `maxTiles` | number | `160` | Upper bound for the number of tiles kept in the DOM (auto layout may choose fewer). In `lightweightMode`, defaults to `60`. |
+| `maxMediaPool` | number | `240` | Maximum number of media items kept on the client. In `lightweightMode`, defaults to `120`. Node helper also trims the pool to this size. |
+| `sizeCacheMax` | number | `400` | Maximum entries for the client-side image ratio cache. |
+| `sizeCacheTtlMinutes` | number | `30` | Periodically clears the ratio cache to free memory. Set `0` to disable. |
 
 ### Immich `immichConfigs[]` items
 
@@ -185,6 +190,7 @@ The module negotiates Immich API version and sets up internal proxies for thumbn
 
 - Images: served as Immich thumbnails (size `thumbnail`) through the module proxy
 - Videos: served as Immich encoded video (`/assets/{id}/video`) with a poster from the image thumbnail
+- HTTP caching: the internal proxy forwards and preserves ETag/If-Modified-Since headers for images and videos where applicable. Clients can reuse cached responses efficiently.
 
 Notes:
 - Video support uses Immich's encoded video endpoint via the module's proxy. Depending on your Immich version and codec support on your device, playback may fall back to showing the poster image.
@@ -200,6 +206,15 @@ Notes:
 | No thumbnails | Proxy blocked or headers issue | Check network for `/immichtilesslideshow/<id>` responses (should be 200). Ensure Immich reachable from MagicMirror host. |
 | Tiles overlap modules | Make the mosaic darker | Increase `overlayOpacity` (e.g., `0.4–0.6`). |
 | Choppy motion | Too many large tiles or tiny device | Lower `updateInterval` frequency, reduce `featuredTilesMax`, or set `imageFit: "contain"`. |
+
+## Raspberry Pi Tips
+
+- Enable the built-in optimizations: `lightweightMode: true`.
+- Consider disabling videos: `enableVideos: false`.
+- If you keep videos, set `videoPreload: "none"` and `videoMaxConcurrent: 1`.
+- Increase rotation interval: `updateInterval: 15000` or higher.
+- Reduce tiles if rendering inline: set a smaller `containerHeightPx`.
+- The module uses Immich thumbnails and encoded streams; if a preview/thumbnail is missing, it falls back to original.
 
 ## Compatibility
 

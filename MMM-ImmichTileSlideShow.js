@@ -88,7 +88,19 @@ Module.register("MMM-ImmichTileSlideShow", {
     // Reshuffle featured tiles every N minutes (0 disables)
     featuredShuffleMinutes: 10,
     // Center band width (0–1 or 0–100%) where featured tiles are placed
-    featuredCenterBand: 0.5
+    featuredCenterBand: 0.5,
+
+    // Lightweight mode (Raspberry Pi optimizations)
+    // When true, keeps fewer tiles in DOM, caps media pool, and can disable videos by default.
+    lightweightMode: false,
+    // Maximum number of grid tiles to keep in the DOM (auto layout may lower this). Default 160; in lightweight mode, 60.
+    maxTiles: 160,
+    // Limit the number of media items kept in memory on the client. Default 240; in lightweight mode, 120.
+    maxMediaPool: 240,
+    // Maximum number of cached image ratios (src -> w/h)
+    sizeCacheMax: 400,
+    // Minutes after which the size cache is cleared (0 disables periodic clearing)
+    sizeCacheTtlMinutes: 30
   },
 
   /**
@@ -126,7 +138,24 @@ Module.register("MMM-ImmichTileSlideShow", {
     this._cadenceIndex = 0;
     this._cadenceSeq = null;
     this._sizeCache = new Map();
+    this._sizeCacheTimer = null;
     this._initialFilled = false;
+
+    // Apply lightweight defaults if requested
+    if (this.config.lightweightMode) {
+      // If user didn't explicitly set enableVideos, turn it off for Pi friendliness
+      if (typeof this.config.enableVideos === 'undefined') this.config.enableVideos = false;
+      // Lower tiles and media pool caps unless user already set smaller values
+      this.config.maxTiles = Math.min(Number(this.config.maxTiles) || 160, 60);
+      this.config.maxMediaPool = Math.min(Number(this.config.maxMediaPool) || 240, 120);
+      // Favor smaller transition time and fewer initial staggers to reduce CPU spikes
+      this.config.transitionDurationMs = Math.min(Number(this.config.transitionDurationMs) || 600, 500);
+      this.config.initialStaggerMs = Math.min(Number(this.config.initialStaggerMs) || 250, 150);
+      // If videos remain enabled, default to no preloading unless user changed it
+      if (this.config.enableVideos && String(this.config.videoPreload || '').toLowerCase() === 'metadata') {
+        this.config.videoPreload = 'none';
+      }
+    }
 
     this.log("started with config", this.config);
 
@@ -150,6 +179,15 @@ Module.register("MMM-ImmichTileSlideShow", {
       }
       this._startRotation();
       this._setDebugText('waiting for data');
+    }
+
+    // Periodic size cache clearing to bound memory
+    const ttlMin = Number(this.config.sizeCacheTtlMinutes) || 0;
+    if (ttlMin > 0) {
+      this._sizeCacheTimer = setInterval(() => {
+        try { this._sizeCache && this._sizeCache.clear(); } catch (_) {}
+        this.log('cleared size cache');
+      }, Math.max(1, ttlMin) * 60 * 1000);
     }
   },
 
@@ -185,6 +223,7 @@ Module.register("MMM-ImmichTileSlideShow", {
       this.log("received images:", payload.images.length);
       this.images = payload.images;
       this._splitMedia();
+      this._capMediaPools();
       this._cadenceIndex = 0;
       this._cadenceSeq = null;
       this._fillTilesInitial();
@@ -303,7 +342,8 @@ Module.register("MMM-ImmichTileSlideShow", {
 
     this.tileEls = [];
     // Start with a modest number of tiles; auto capacity adjustments will follow
-    const baseTiles = 20;
+    const cap = Number(this.config.maxTiles) || 160;
+    const baseTiles = Math.min(20, Math.max(10, Math.floor(cap * 0.2)));
     for (let i = 0; i < baseTiles; i++) {
       const tile = this._createTile();
       wrapper.appendChild(tile);
@@ -411,6 +451,15 @@ Module.register("MMM-ImmichTileSlideShow", {
       if (k === 'video') this._videoPool.push(m);
       else this._imagePool.push(m);
     }
+  },
+
+  _capMediaPools() {
+    const cap = Number(this.config.maxMediaPool || 0) || 0;
+    if (!cap) return;
+    if (this._imagePool.length > cap) this._imagePool.length = cap;
+    // Keep at most ~1/6 of the cap for videos to reduce CPU
+    const vCap = Math.max(0, Math.floor(cap / 6));
+    if (this._videoPool.length > vCap) this._videoPool.length = vCap;
   },
 
   _parseImageVideoRatio() {
@@ -536,7 +585,7 @@ Module.register("MMM-ImmichTileSlideShow", {
     }
 
     // Adjust mosaic spans by orientation
-    this._applyMosaicSpans(tile, (image.kind === 'video' && image.posterSrc) ? image.posterSrc : image.src);
+    this._applyMosaicSpans(tile, image);
   },
 
   /**
@@ -572,6 +621,7 @@ Module.register("MMM-ImmichTileSlideShow", {
     }
     this._activeVideoCount = 0;
     this._unbindResize();
+    if (this._sizeCacheTimer) { try { clearInterval(this._sizeCacheTimer); } catch (_) {} this._sizeCacheTimer = null; }
     // Remove injected root to avoid leakage on restarts
     try {
       if (this._root && this._root.parentNode) {
@@ -677,6 +727,22 @@ Module.register("MMM-ImmichTileSlideShow", {
   _applyMosaicSpans(tile, src) {
     // Do not override featured tile sizing
     if (tile && tile.dataset && tile.dataset.featured === '1') return;
+    // Accept either a full image object (with potential w/h) or a src string
+    if (typeof src !== 'string') {
+      const image = src;
+      const realSrc = (image && image.kind === 'video' && image.posterSrc) ? image.posterSrc : (image && image.src);
+      const w = image && Number(image.w);
+      const h = image && Number(image.h);
+      if (w && h && w > 0 && h > 0) {
+        const ratio = w / h;
+        if (this._sizeCache) {
+          try { this._sizeCache.set(realSrc, ratio); } catch (_) {}
+        }
+        this._applySpansForRatio(tile, ratio);
+        return;
+      }
+      src = realSrc;
+    }
     // Use cached ratio when available to avoid image reloading
     if (this._sizeCache && this._sizeCache.has(src)) {
       const ratio = this._sizeCache.get(src);
@@ -689,7 +755,9 @@ Module.register("MMM-ImmichTileSlideShow", {
       const h = img.naturalHeight || img.height;
       if (!w || !h) return;
       const ratio = w / h;
-      if (this._sizeCache) this._sizeCache.set(src, ratio);
+      if (this._sizeCache) {
+        try { this._sizeCache.set(src, ratio); } catch (_) {}
+      }
       this._applySpansForRatio(tile, ratio);
     };
     img.src = src;
@@ -742,11 +810,11 @@ Module.register("MMM-ImmichTileSlideShow", {
     if (this.config.enableScrolling) {
       // Credits-like: keep only visible rows + a few extra rows buffered
       const extraRows = 4;
-      needed = Math.min(160, (m.cols * (m.rows + extraRows)));
+      needed = Math.min(Number(this.config.maxTiles) || 160, (m.cols * (m.rows + extraRows)));
     } else {
       const bufferScreens = 1; // minimal buffer
       const buffer = Math.max(2, Math.floor(m.count * 0.15));
-      needed = Math.min(160, (m.count * bufferScreens) + buffer);
+      needed = Math.min(Number(this.config.maxTiles) || 160, (m.count * bufferScreens) + buffer);
     }
     const added = this._ensureTileCapacity(needed);
     if (added > 0 && this.images) {
