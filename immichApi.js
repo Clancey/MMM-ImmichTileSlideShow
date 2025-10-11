@@ -29,7 +29,8 @@ const immichApi = {
       albumInfo: '/albums/{id}',
       memoryLane: '/assets/memory-lane',
       assetInfo: '/assets/{id}',
-      // Use smaller thumbnails to lighten browser load on low-power devices
+      // Prefer preview, then thumbnail; keep original as fallback
+      assetPreview: '/assets/{id}/thumbnail?size=preview',
       assetDownload: '/assets/{id}/thumbnail?size=thumbnail',
       assetOriginal: '/assets/{id}/original',
       serverInfoUrl: '/server-info/version',
@@ -43,7 +44,8 @@ const immichApi = {
       albumInfo: '/albums/{id}',
       memoryLane: '/assets/memory-lane',
       assetInfo: '/assets/{id}',
-      // Use smaller thumbnails to lighten browser load on low-power devices
+      // Prefer preview, then thumbnail; keep original as fallback
+      assetPreview: '/assets/{id}/thumbnail?size=preview',
       assetDownload: '/assets/{id}/thumbnail?size=thumbnail',
       assetOriginal: '/assets/{id}/original',
       serverInfoUrl: '/server/version',
@@ -57,7 +59,8 @@ const immichApi = {
       albumInfo: '/albums/{id}',
       memoryLane: '/memories',
       assetInfo: '/assets/{id}',
-      // Use smaller thumbnails to lighten browser load on low-power devices
+      // Prefer preview, then thumbnail; keep original as fallback
+      assetPreview: '/assets/{id}/thumbnail?size=preview',
       assetDownload: '/assets/{id}/thumbnail?size=thumbnail',
       assetOriginal: '/assets/{id}/original',
       serverInfoUrl: '/server/version',
@@ -128,32 +131,36 @@ const immichApi = {
         throw new Error('Failed to get Immich version. Cannot proceed.');
       }
 
-      // Image route with fallback to original on 404 (guard against duplicates)
+      // Image route with preview -> thumbnail -> original fallback (guard against duplicates)
       if (!this._imageProxySetup) {
         if (this.debugOn) Log.info(LOG_PREFIX + '[debug] setting up image route at ' + IMMICH_PROXY_URL);
         expressApp.get(IMMICH_PROXY_URL + ':id', async (req, res) => {
           const imageId = req.params.id;
-          const paths = [
-            this.apiUrls[this.apiLevel].assetDownload.replace('{id}', imageId),
-            this.apiUrls[this.apiLevel].assetOriginal.replace('{id}', imageId)
-          ];
-          for (let i = 0; i < paths.length; i++) {
-            const p = this.apiBaseUrl + paths[i];
+          const urls = [];
+          const conf = this.apiUrls[this.apiLevel];
+          if (conf.assetPreview) urls.push(conf.assetPreview.replace('{id}', imageId));
+          if (conf.assetDownload) urls.push(conf.assetDownload.replace('{id}', imageId));
+          if (conf.assetOriginal) urls.push(conf.assetOriginal.replace('{id}', imageId));
+          for (let i = 0; i < urls.length; i++) {
+            const p = this.apiBaseUrl + urls[i];
             try {
-              const upstream = await this.http.get(p, { responseType: 'stream', headers: { Accept: 'application/octet-stream' } });
-              if (upstream.status === 200) {
-                const ct = upstream.headers['content-type']; if (ct) res.setHeader('Content-Type', ct);
-                const cl = upstream.headers['content-length']; if (cl) res.setHeader('Content-Length', cl);
-                res.setHeader('Cache-Control', 'public, max-age=600');
+              const upstream = await this.http.get(p, { responseType: 'stream', headers: { Accept: req.headers['accept'] || 'application/octet-stream' } });
+              if ((upstream.status >= 200 && upstream.status < 300) || upstream.status === 304) {
+                // Forward upstream headers and status
+                for (const [k, v] of Object.entries(upstream.headers || {})) {
+                  if (typeof v !== 'undefined' && v !== null) res.setHeader(k, v);
+                }
+                res.status(upstream.status);
+                if (upstream.status === 304) { res.end(); return; }
                 upstream.data.on('error', () => { try { res.end(); } catch (_) {} });
                 upstream.data.pipe(res);
                 return;
               }
-              if (upstream.status === 404 && i < paths.length - 1) continue;
+              if (upstream.status === 404 && i < urls.length - 1) continue;
               res.status(upstream.status).end();
               return;
             } catch (e) {
-              if (i < paths.length - 1) continue;
+              if (i < urls.length - 1) continue;
               Log.warn(LOG_PREFIX + 'image route error: ' + e.message);
               res.status(502).end();
               return;
@@ -163,32 +170,38 @@ const immichApi = {
         this._imageProxySetup = true;
       }
 
-      // Video route with fallback to original on 404
+      // Video route with encoded -> original fallback; forward Range/conditional headers
       if (!this._videoProxySetup) {
         if (this.debugOn) Log.info(LOG_PREFIX + '[debug] setting up video route at ' + IMMICH_VIDEO_PROXY_URL);
         expressApp.get(IMMICH_VIDEO_PROXY_URL + ':id', async (req, res) => {
           const assetId = req.params.id;
-          const paths = [
-            this.apiUrls[this.apiLevel].videoStream.replace('{id}', assetId),
-            this.apiUrls[this.apiLevel].assetOriginal.replace('{id}', assetId)
-          ];
-          for (let i = 0; i < paths.length; i++) {
-            const p = this.apiBaseUrl + paths[i];
+          const urls = [];
+          const conf = this.apiUrls[this.apiLevel];
+          if (conf.videoStream) urls.push(conf.videoStream.replace('{id}', assetId));
+          if (conf.assetOriginal) urls.push(conf.assetOriginal.replace('{id}', assetId));
+          for (let i = 0; i < urls.length; i++) {
+            const p = this.apiBaseUrl + urls[i];
             try {
-              const upstream = await this.http.get(p, { responseType: 'stream', headers: { Accept: '*/*' } });
-              if (upstream.status === 200) {
-                const ct = upstream.headers['content-type']; if (ct) res.setHeader('Content-Type', ct);
-                const cl = upstream.headers['content-length']; if (cl) res.setHeader('Content-Length', cl);
-                res.setHeader('Cache-Control', 'public, max-age=600');
+              const headers = { Accept: req.headers['accept'] || '*/*' };
+              if (req.headers['range']) headers['Range'] = req.headers['range'];
+              if (req.headers['if-none-match']) headers['If-None-Match'] = req.headers['if-none-match'];
+              if (req.headers['if-modified-since']) headers['If-Modified-Since'] = req.headers['if-modified-since'];
+              const upstream = await this.http.get(p, { responseType: 'stream', headers });
+              if ((upstream.status >= 200 && upstream.status < 300) || upstream.status === 304) {
+                for (const [k, v] of Object.entries(upstream.headers || {})) {
+                  if (typeof v !== 'undefined' && v !== null) res.setHeader(k, v);
+                }
+                res.status(upstream.status);
+                if (upstream.status === 304) { res.end(); return; }
                 upstream.data.on('error', () => { try { res.end(); } catch (_) {} });
                 upstream.data.pipe(res);
                 return;
               }
-              if (upstream.status === 404 && i < paths.length - 1) continue;
+              if (upstream.status === 404 && i < urls.length - 1) continue;
               res.status(upstream.status).end();
               return;
             } catch (e) {
-              if (i < paths.length - 1) continue;
+              if (i < urls.length - 1) continue;
               Log.warn(LOG_PREFIX + 'video route error: ' + e.message);
               res.status(502).end();
               return;
