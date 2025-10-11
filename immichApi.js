@@ -3,7 +3,7 @@
 
 const Log = require('logger');
 const axios = require('axios');
-const { createProxyMiddleware } = require('http-proxy-middleware');
+// http-proxy-middleware no longer used; custom routes stream with fallback
 
 const LOG_PREFIX = 'MMM-ImmichTileSlideShow :: immichApi :: ';
 const IMMICH_PROXY_URL = '/immichtilesslideshow/';
@@ -18,6 +18,7 @@ const immichApi = {
       memoryLane: '/asset/memory-lane',
       assetInfo: '/asset/{id}',
       assetDownload: '/asset/file/{id}?isWeb=true',
+      assetOriginal: '/asset/file/{id}',
       serverInfoUrl: '/server-info/version',
       search: 'NOT SUPPORTED',
       videoStream: '/asset/file/{id}?isWeb=true'
@@ -30,6 +31,7 @@ const immichApi = {
       assetInfo: '/assets/{id}',
       // Use smaller thumbnails to lighten browser load on low-power devices
       assetDownload: '/assets/{id}/thumbnail?size=thumbnail',
+      assetOriginal: '/assets/{id}/original',
       serverInfoUrl: '/server-info/version',
       search: 'NOT SUPPORTED',
       // Use Immich's encoded video stream endpoint to reduce client load
@@ -43,6 +45,7 @@ const immichApi = {
       assetInfo: '/assets/{id}',
       // Use smaller thumbnails to lighten browser load on low-power devices
       assetDownload: '/assets/{id}/thumbnail?size=thumbnail',
+      assetOriginal: '/assets/{id}/original',
       serverInfoUrl: '/server/version',
       search: '/search/smart',
       // Use Immich's encoded video stream endpoint to reduce client load
@@ -56,6 +59,7 @@ const immichApi = {
       assetInfo: '/assets/{id}',
       // Use smaller thumbnails to lighten browser load on low-power devices
       assetDownload: '/assets/{id}/thumbnail?size=thumbnail',
+      assetOriginal: '/assets/{id}/original',
       serverInfoUrl: '/server/version',
       search: '/search/smart',
       randomSearch: '/search/random',
@@ -124,49 +128,73 @@ const immichApi = {
         throw new Error('Failed to get Immich version. Cannot proceed.');
       }
 
-      // Proxy for image thumbnails via MagicMirror (guard against duplicates)
+      // Image route with fallback to original on 404 (guard against duplicates)
       if (!this._imageProxySetup) {
-        if (this.debugOn) Log.info(LOG_PREFIX + '[debug] setting up proxy at ' + IMMICH_PROXY_URL);
-        expressApp.use(
-          IMMICH_PROXY_URL,
-          createProxyMiddleware({
-            target: config.url,
-            changeOrigin: true,
-            proxyTimeout: config.timeout || 6000,
-            headers: {
-              'x-api-key': config.apiKey,
-              accept: 'application/octet-stream'
-            },
-            pathRewrite: (path) => {
-              const parts = path.split('/');
-              const imageId = parts[parts.length - 1];
-              return this.apiBaseUrl + this.apiUrls[this.apiLevel].assetDownload.replace('{id}', imageId);
+        if (this.debugOn) Log.info(LOG_PREFIX + '[debug] setting up image route at ' + IMMICH_PROXY_URL);
+        expressApp.get(IMMICH_PROXY_URL + ':id', async (req, res) => {
+          const imageId = req.params.id;
+          const paths = [
+            this.apiUrls[this.apiLevel].assetDownload.replace('{id}', imageId),
+            this.apiUrls[this.apiLevel].assetOriginal.replace('{id}', imageId)
+          ];
+          for (let i = 0; i < paths.length; i++) {
+            const p = this.apiBaseUrl + paths[i];
+            try {
+              const upstream = await this.http.get(p, { responseType: 'stream', headers: { Accept: 'application/octet-stream' } });
+              if (upstream.status === 200) {
+                const ct = upstream.headers['content-type']; if (ct) res.setHeader('Content-Type', ct);
+                const cl = upstream.headers['content-length']; if (cl) res.setHeader('Content-Length', cl);
+                res.setHeader('Cache-Control', 'public, max-age=600');
+                upstream.data.on('error', () => { try { res.end(); } catch (_) {} });
+                upstream.data.pipe(res);
+                return;
+              }
+              if (upstream.status === 404 && i < paths.length - 1) continue;
+              res.status(upstream.status).end();
+              return;
+            } catch (e) {
+              if (i < paths.length - 1) continue;
+              Log.warn(LOG_PREFIX + 'image route error: ' + e.message);
+              res.status(502).end();
+              return;
             }
-          })
-        );
+          }
+        });
         this._imageProxySetup = true;
       }
 
-      // Proxy for video streaming via MagicMirror
+      // Video route with fallback to original on 404
       if (!this._videoProxySetup) {
-        if (this.debugOn) Log.info(LOG_PREFIX + '[debug] setting up video proxy at ' + IMMICH_VIDEO_PROXY_URL);
-        expressApp.use(
-          IMMICH_VIDEO_PROXY_URL,
-          createProxyMiddleware({
-            target: config.url,
-            changeOrigin: true,
-            proxyTimeout: config.timeout || 6000,
-            headers: {
-              'x-api-key': config.apiKey,
-              accept: '*/*'
-            },
-            pathRewrite: (path) => {
-              const parts = path.split('/');
-              const assetId = parts[parts.length - 1];
-              return this.apiBaseUrl + this.apiUrls[this.apiLevel].videoStream.replace('{id}', assetId);
+        if (this.debugOn) Log.info(LOG_PREFIX + '[debug] setting up video route at ' + IMMICH_VIDEO_PROXY_URL);
+        expressApp.get(IMMICH_VIDEO_PROXY_URL + ':id', async (req, res) => {
+          const assetId = req.params.id;
+          const paths = [
+            this.apiUrls[this.apiLevel].videoStream.replace('{id}', assetId),
+            this.apiUrls[this.apiLevel].assetOriginal.replace('{id}', assetId)
+          ];
+          for (let i = 0; i < paths.length; i++) {
+            const p = this.apiBaseUrl + paths[i];
+            try {
+              const upstream = await this.http.get(p, { responseType: 'stream', headers: { Accept: '*/*' } });
+              if (upstream.status === 200) {
+                const ct = upstream.headers['content-type']; if (ct) res.setHeader('Content-Type', ct);
+                const cl = upstream.headers['content-length']; if (cl) res.setHeader('Content-Length', cl);
+                res.setHeader('Cache-Control', 'public, max-age=600');
+                upstream.data.on('error', () => { try { res.end(); } catch (_) {} });
+                upstream.data.pipe(res);
+                return;
+              }
+              if (upstream.status === 404 && i < paths.length - 1) continue;
+              res.status(upstream.status).end();
+              return;
+            } catch (e) {
+              if (i < paths.length - 1) continue;
+              Log.warn(LOG_PREFIX + 'video route error: ' + e.message);
+              res.status(502).end();
+              return;
             }
-          })
-        );
+          }
+        });
         this._videoProxySetup = true;
       }
       if (this.debugOn) Log.info(LOG_PREFIX + '[debug] Server API level -> ' + this.apiLevel);

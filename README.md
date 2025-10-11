@@ -2,7 +2,7 @@
 
 A tile-based slideshow for MagicMirror² that displays a configurable grid of images. It is designed to fetch photos and (optionally) videos from [Immich (self-hosted photo app)](http://immch.app/) via the module's `node_helper` and internal proxies, but it also ships with placeholder tiles so it renders out-of-the-box with zero configuration.
 
-Performance note (Raspberry Pi / Chromium): this module now requests Immich thumbnails for images (`/assets/{id}/thumbnail?size=thumbnail`) and the encoded video stream (`/assets/{id}/video`) instead of full originals. This significantly reduces bandwidth and CPU usage on low-power devices.
+Performance note (Raspberry Pi / Chromium): this module now requests Immich thumbnails for images (`/assets/{id}/thumbnail?size=thumbnail`) and the encoded video stream (`/assets/{id}/video`) instead of full originals. If the thumbnail or encoded stream responds with 404, the module automatically falls back to the original asset URL. This significantly reduces bandwidth and CPU usage on low-power devices while remaining robust.
 
 - Auto grid layout (auto tile count/gap, fit: cover/contain)
 - Rotates a random tile at a fixed interval with configurable transitions (fade/slide)
