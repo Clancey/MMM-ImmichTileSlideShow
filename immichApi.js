@@ -142,8 +142,9 @@ const immichApi = {
           if (conf.assetDownload) urls.push(conf.assetDownload.replace('{id}', imageId));
           if (conf.assetOriginal) urls.push(conf.assetOriginal.replace('{id}', imageId));
           for (let i = 0; i < urls.length; i++) {
-            const p = this.apiBaseUrl + urls[i];
+            const p = urls[i];
             try {
+              if (this.debugOn) Log.info(LOG_PREFIX + `[debug] image fetch try ${i + 1}/${urls.length}: ${p}`);
               const upstream = await this.http.get(p, { responseType: 'stream', headers: { Accept: req.headers['accept'] || 'application/octet-stream' } });
               if ((upstream.status >= 200 && upstream.status < 300) || upstream.status === 304) {
                 // Forward upstream headers and status
@@ -180,12 +181,13 @@ const immichApi = {
           if (conf.videoStream) urls.push(conf.videoStream.replace('{id}', assetId));
           if (conf.assetOriginal) urls.push(conf.assetOriginal.replace('{id}', assetId));
           for (let i = 0; i < urls.length; i++) {
-            const p = this.apiBaseUrl + urls[i];
+            const p = urls[i];
             try {
               const headers = { Accept: req.headers['accept'] || '*/*' };
               if (req.headers['range']) headers['Range'] = req.headers['range'];
               if (req.headers['if-none-match']) headers['If-None-Match'] = req.headers['if-none-match'];
               if (req.headers['if-modified-since']) headers['If-Modified-Since'] = req.headers['if-modified-since'];
+              if (this.debugOn) Log.info(LOG_PREFIX + `[debug] video fetch try ${i + 1}/${urls.length}: ${p}`);
               const upstream = await this.http.get(p, { responseType: 'stream', headers });
               if ((upstream.status >= 200 && upstream.status < 300) || upstream.status === 304) {
                 for (const [k, v] of Object.entries(upstream.headers || {})) {
