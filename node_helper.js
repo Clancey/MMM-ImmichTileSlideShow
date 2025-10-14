@@ -81,6 +81,7 @@ module.exports = NodeHelper.create({
       }
       return;
     }
+    // No periodic refresh path; refresh occurs on module restart or config changes
   },
 
   /**
@@ -226,7 +227,8 @@ async function _loadFromImmichImpl(context) {
 
   // toggle immichApi debug passthrough
   immichApi.debugOn = !!(context.config && context.config.debug);
-  await immichApi.init(cfg, context.expressApp, true);
+  // Prefer thumbnail-sized assets when lightweightMode is enabled; fallback to original
+  await immichApi.init({ ...cfg, preferThumbnail: !!(context.config && context.config.lightweightMode) }, context.expressApp, true);
   dlog(context, 'api level resolved', immichApi.apiLevel);
 
   let images = [];
@@ -304,12 +306,7 @@ async function _loadFromImmichImpl(context) {
   });
   dlog(context, 'mapped tiles', tiles && tiles.length);
 
-  // Bound client memory: cap media pool size
-  const poolCap = Math.max(10, Number(context.config.maxMediaPool || 0) || 0);
-  if (poolCap > 0 && tiles.length > poolCap) {
-    tiles = tiles.slice(0, poolCap);
-    dlog(context, 'capped tiles to poolCap', poolCap);
-  }
+  // No server-side pool cap; all filtered media are returned.
 
   // Sort
   switch (cfg.sortImagesBy) {

@@ -91,12 +91,11 @@ Module.register("MMM-ImmichTileSlideShow", {
     featuredCenterBand: 0.5,
 
     // Lightweight mode (Raspberry Pi optimizations)
-    // When true, keeps fewer tiles in DOM, caps media pool, and can disable videos by default.
+    // When true, the module will prefer smaller Immich thumbnail assets via proxy,
+    // falling back to original if needed. Other behaviors remain similar.
     lightweightMode: false,
-    // Maximum number of grid tiles to keep in the DOM (auto layout may lower this). Default 160; in lightweight mode, 60.
+    // Maximum number of grid tiles to keep in the DOM (auto layout may lower this).
     maxTiles: 160,
-    // Limit the number of media items kept in memory on the client. Default 240; in lightweight mode, 120.
-    maxMediaPool: 240,
     // Maximum number of cached image ratios (src -> w/h)
     sizeCacheMax: 400,
     // Minutes after which the size cache is cleared (0 disables periodic clearing)
@@ -141,21 +140,7 @@ Module.register("MMM-ImmichTileSlideShow", {
     this._sizeCacheTimer = null;
     this._initialFilled = false;
 
-    // Apply lightweight defaults if requested
-    if (this.config.lightweightMode) {
-      // If user didn't explicitly set enableVideos, turn it off for Pi friendliness
-      if (typeof this.config.enableVideos === 'undefined') this.config.enableVideos = false;
-      // Lower tiles and media pool caps unless user already set smaller values
-      this.config.maxTiles = Math.min(Number(this.config.maxTiles) || 160, 60);
-      this.config.maxMediaPool = Math.min(Number(this.config.maxMediaPool) || 240, 120);
-      // Favor smaller transition time and fewer initial staggers to reduce CPU spikes
-      this.config.transitionDurationMs = Math.min(Number(this.config.transitionDurationMs) || 600, 500);
-      this.config.initialStaggerMs = Math.min(Number(this.config.initialStaggerMs) || 250, 150);
-      // If videos remain enabled, default to no preloading unless user changed it
-      if (this.config.enableVideos && String(this.config.videoPreload || '').toLowerCase() === 'metadata') {
-        this.config.videoPreload = 'none';
-      }
-    }
+    // Lightweight mode: no client-side behavioral changes beyond Immich asset preference.
 
     this.log("started with config", this.config);
 
@@ -184,10 +169,11 @@ Module.register("MMM-ImmichTileSlideShow", {
     // Periodic size cache clearing to bound memory
     const ttlMin = Number(this.config.sizeCacheTtlMinutes) || 0;
     if (ttlMin > 0) {
+      const periodMs = Math.max(1, ttlMin) * 60 * 1000;
       this._sizeCacheTimer = setInterval(() => {
         try { this._sizeCache && this._sizeCache.clear(); } catch (_) {}
         this.log('cleared size cache');
-      }, Math.max(1, ttlMin) * 60 * 1000);
+      }, periodMs);
     }
   },
 
@@ -223,7 +209,6 @@ Module.register("MMM-ImmichTileSlideShow", {
       this.log("received images:", payload.images.length);
       this.images = payload.images;
       this._splitMedia();
-      this._capMediaPools();
       this._cadenceIndex = 0;
       this._cadenceSeq = null;
       this._fillTilesInitial();
@@ -234,6 +219,8 @@ Module.register("MMM-ImmichTileSlideShow", {
       this._maybeStartScroll();
     }
   },
+
+  // (No active refresh request; media refresh is driven by config changes or module restarts)
 
   /**
    * Create a tile element with inner structure.
@@ -453,14 +440,7 @@ Module.register("MMM-ImmichTileSlideShow", {
     }
   },
 
-  _capMediaPools() {
-    const cap = Number(this.config.maxMediaPool || 0) || 0;
-    if (!cap) return;
-    if (this._imagePool.length > cap) this._imagePool.length = cap;
-    // Keep at most ~1/6 of the cap for videos to reduce CPU
-    const vCap = Math.max(0, Math.floor(cap / 6));
-    if (this._videoPool.length > vCap) this._videoPool.length = vCap;
-  },
+  // No client-side media pool cap; all received media may be used
 
   _parseImageVideoRatio() {
     const r = this.config.imageVideoRatio;

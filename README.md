@@ -153,9 +153,8 @@ See `examples/config.example.js` for another snippet.
 | `scrollSpeedPxPerSec` | number | `18` | Vertical scroll speed in pixels per second. |
 | `immichConfigs` | array | `[]` | Immich connection settings array. Provide `url`, `apiKey`, and `mode`. |
 | `activeImmichConfigIndex` | number | `0` | Index into `immichConfigs` to use. |
-| `lightweightMode` | boolean | `false` | Pi-optimized mode: reduces tiles and media pool caps, disables videos by default (unless explicitly set), shortens transitions, and periodically clears internal caches. |
-| `maxTiles` | number | `160` | Upper bound for the number of tiles kept in the DOM (auto layout may choose fewer). In `lightweightMode`, defaults to `60`. |
-| `maxMediaPool` | number | `240` | Maximum number of media items kept on the client. In `lightweightMode`, defaults to `120`. Node helper also trims the pool to this size. |
+| `lightweightMode` | boolean | `false` | Prefers smaller Immich thumbnails for images (via the module proxy) and falls back to original if necessary. Other behavior remains similar. |
+| `maxTiles` | number | `160` | Upper bound for the number of tiles kept in the DOM (auto layout may choose fewer). |
 | `sizeCacheMax` | number | `400` | Maximum entries for the client-side image ratio cache. |
 | `sizeCacheTtlMinutes` | number | `30` | Periodically clears the ratio cache to free memory. Set `0` to disable. |
 
@@ -188,7 +187,7 @@ See `examples/config.example.js` for another snippet.
 
 The module negotiates Immich API version and sets up internal proxies for thumbnails and (when enabled) basic video playback. Supported modes: memory, album, search, random, anniversary. It filters/sorts assets server-side and streams optimized URLs to the client for smooth tile updates.
 
-- Images: served as Immich thumbnails (size `thumbnail`) through the module proxy
+- Images: served via module proxy using Immich thumbnails/previews. In `lightweightMode`, the proxy prefers the smaller `thumbnail` first and falls back to `preview`/original. Otherwise, it tries `preview` first, then `thumbnail`, then original.
 - Videos: served as Immich encoded video (`/assets/{id}/video`) with a poster from the image thumbnail
 - HTTP caching: the internal proxy forwards and preserves ETag/If-Modified-Since headers for images and videos where applicable. Clients can reuse cached responses efficiently.
 
@@ -242,8 +241,3 @@ MIT — see LICENSE
   }
 }
 ```
-
-## Changelog
-- v0.7.0 — Auto layout tuned (dynamic tile size/rows), added experimental auto-scrolling, videos enabled by default
-- v0.6.0 — Auto layout (tiles/gap), fullscreen/inline toggle, DOM cleanup, proxy guards
-- v0.1.0 — Initial release with working grid UI and placeholders

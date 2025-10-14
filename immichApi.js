@@ -74,6 +74,7 @@ const immichApi = {
   apiLevel: 'v1_133',
   apiBaseUrl: '/api',
   http: null,
+  preferThumbnail: false,
 
   /**
    * Initialize HTTP client and set up proxy route
@@ -83,6 +84,7 @@ const immichApi = {
    */
   init: async function (config, expressApp, force) {
     if (this.http === null || force) {
+      this.preferThumbnail = !!config.preferThumbnail;
       this.http = axios.create({
         baseURL: config.url + this.apiBaseUrl,
         timeout: config.timeout || 6000,
@@ -138,8 +140,14 @@ const immichApi = {
           const imageId = req.params.id;
           const urls = [];
           const conf = this.apiUrls[this.apiLevel];
-          if (conf.assetPreview) urls.push(conf.assetPreview.replace('{id}', imageId));
-          if (conf.assetDownload) urls.push(conf.assetDownload.replace('{id}', imageId));
+          // Order of preference for images: when preferThumbnail=true, try smaller thumbnail first
+          if (this.preferThumbnail) {
+            if (conf.assetDownload) urls.push(conf.assetDownload.replace('{id}', imageId));
+            if (conf.assetPreview) urls.push(conf.assetPreview.replace('{id}', imageId));
+          } else {
+            if (conf.assetPreview) urls.push(conf.assetPreview.replace('{id}', imageId));
+            if (conf.assetDownload) urls.push(conf.assetDownload.replace('{id}', imageId));
+          }
           if (conf.assetOriginal) urls.push(conf.assetOriginal.replace('{id}', imageId));
           for (let i = 0; i < urls.length; i++) {
             const p = urls[i];
