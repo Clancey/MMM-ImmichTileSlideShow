@@ -61,6 +61,8 @@
   transform: translateZ(0);
   grid-column: span 1;
   grid-row: span 1;
+  pointer-events: auto; /* Enable clicks (fullscreen region has pointer-events: none) */
+  cursor: pointer;
   /* Help the browser skip rendering for offscreen tiles (useful when scrolling) */
   content-visibility: auto;
   contain-intrinsic-size: 200px 150px;

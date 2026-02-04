@@ -30,7 +30,7 @@
     "postinstall": "echo 'MMM-ImmichTileSlideShow ready'"
   },
   "dependencies": {
-    "axios": "^1.6.0",
+    "axios": "^1.13.4",
     "http-proxy-middleware": "^3.0.0"
   }
 }

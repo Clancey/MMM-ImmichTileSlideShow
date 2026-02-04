@@ -8,6 +8,7 @@ const axios = require('axios');
 const LOG_PREFIX = 'MMM-ImmichTileSlideShow :: immichApi :: ';
 const IMMICH_PROXY_URL = '/immichtilesslideshow/';
 const IMMICH_VIDEO_PROXY_URL = '/immichtilesslideshow-video/';
+const IMMICH_PREVIEW_PROXY_URL = '/immichtilesslideshow-preview/';
 
 const immichApi = {
   debugOn: false,
@@ -222,6 +223,48 @@ const immichApi = {
           }
         });
         this._videoProxySetup = true;
+      }
+
+      // Preview route - always returns preview or original (larger than thumbnail)
+      if (!this._previewProxySetup) {
+        if (this.debugOn) Log.info(LOG_PREFIX + '[debug] setting up preview route at ' + IMMICH_PREVIEW_PROXY_URL);
+        expressApp.get(IMMICH_PREVIEW_PROXY_URL + ':id', async (req, res) => {
+          const imageId = req.params.id;
+          const urls = [];
+          const conf = this.apiUrls[this.apiLevel];
+          // Preview first, then original - skip thumbnail for full-size viewing
+          if (conf.assetPreview) urls.push(conf.assetPreview.replace('{id}', imageId));
+          if (conf.assetOriginal) urls.push(conf.assetOriginal.replace('{id}', imageId));
+          for (let i = 0; i < urls.length; i++) {
+            const p = urls[i];
+            try {
+              if (this.debugOn) Log.info(LOG_PREFIX + `[debug] preview fetch try ${i + 1}/${urls.length}: ${p}`);
+              const headers = { Accept: req.headers['accept'] || 'application/octet-stream' };
+              if (req.headers['if-none-match']) headers['If-None-Match'] = req.headers['if-none-match'];
+              if (req.headers['if-modified-since']) headers['If-Modified-Since'] = req.headers['if-modified-since'];
+              const upstream = await this.http.get(p, { responseType: 'stream', headers });
+              if ((upstream.status >= 200 && upstream.status < 300) || upstream.status === 304) {
+                for (const [k, v] of Object.entries(upstream.headers || {})) {
+                  if (typeof v !== 'undefined' && v !== null) res.setHeader(k, v);
+                }
+                res.status(upstream.status);
+                if (upstream.status === 304) { res.end(); return; }
+                upstream.data.on('error', () => { try { res.end(); } catch (_) {} });
+                upstream.data.pipe(res);
+                return;
+              }
+              if (upstream.status === 404 && i < urls.length - 1) continue;
+              res.status(upstream.status).end();
+              return;
+            } catch (e) {
+              if (i < urls.length - 1) continue;
+              Log.warn(LOG_PREFIX + 'preview route error: ' + e.message);
+              res.status(502).end();
+              return;
+            }
+          }
+        });
+        this._previewProxySetup = true;
       }
       if (this.debugOn) Log.info(LOG_PREFIX + '[debug] Server API level -> ' + this.apiLevel);
       else Log.debug(LOG_PREFIX + 'Server API level -> ' + this.apiLevel);
