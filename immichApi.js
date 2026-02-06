@@ -190,8 +190,9 @@ const immichApi = {
           const assetId = req.params.id;
           const urls = [];
           const conf = this.apiUrls[this.apiLevel];
-          // Only use transcoded video stream - original may be in unplayable format (HEVC, ProRes, etc.)
+          // Try transcoded stream first, fall back to original
           if (conf.videoStream) urls.push(conf.videoStream.replace('{id}', assetId));
+          if (conf.assetOriginal) urls.push(conf.assetOriginal.replace('{id}', assetId));
 
           Log.info(LOG_PREFIX + `VIDEO REQUEST: ${assetId}`);
 
