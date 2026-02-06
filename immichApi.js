@@ -183,15 +183,18 @@ const immichApi = {
         this._imageProxySetup = true;
       }
 
-      // Video route with encoded -> original fallback; forward Range/conditional headers
+      // Video route - only use transcoded stream (no fallback to original which may be unplayable)
       if (!this._videoProxySetup) {
         if (this.debugOn) Log.info(LOG_PREFIX + '[debug] setting up video route at ' + IMMICH_VIDEO_PROXY_URL);
         expressApp.get(IMMICH_VIDEO_PROXY_URL + ':id', async (req, res) => {
           const assetId = req.params.id;
           const urls = [];
           const conf = this.apiUrls[this.apiLevel];
+          // Only use transcoded video stream - original may be in unplayable format (HEVC, ProRes, etc.)
           if (conf.videoStream) urls.push(conf.videoStream.replace('{id}', assetId));
-          if (conf.assetOriginal) urls.push(conf.assetOriginal.replace('{id}', assetId));
+
+          Log.info(LOG_PREFIX + `VIDEO REQUEST: ${assetId}`);
+
           for (let i = 0; i < urls.length; i++) {
             const p = urls[i];
             try {
@@ -202,25 +205,35 @@ const immichApi = {
               if (this.debugOn) Log.info(LOG_PREFIX + `[debug] video fetch try ${i + 1}/${urls.length}: ${p}`);
               const upstream = await this.http.get(p, { responseType: 'stream', headers });
               if ((upstream.status >= 200 && upstream.status < 300) || upstream.status === 304) {
+                const contentType = upstream.headers['content-type'] || 'unknown';
+                const contentLength = upstream.headers['content-length'] || 'unknown';
+                Log.info(LOG_PREFIX + `VIDEO SUCCESS: ${assetId} | type: ${contentType} | size: ${contentLength}`);
+
                 for (const [k, v] of Object.entries(upstream.headers || {})) {
                   if (typeof v !== 'undefined' && v !== null) res.setHeader(k, v);
                 }
                 res.status(upstream.status);
                 if (upstream.status === 304) { res.end(); return; }
-                upstream.data.on('error', () => { try { res.end(); } catch (_) {} });
+                upstream.data.on('error', (err) => {
+                  Log.error(LOG_PREFIX + `VIDEO STREAM ERROR: ${assetId} | ${err.message}`);
+                  try { res.end(); } catch (_) {}
+                });
                 upstream.data.pipe(res);
                 return;
               }
+              Log.warn(LOG_PREFIX + `VIDEO FAILED: ${assetId} | status: ${upstream.status} (not transcoded yet?)`);
               if (upstream.status === 404 && i < urls.length - 1) continue;
               res.status(upstream.status).end();
               return;
             } catch (e) {
+              Log.error(LOG_PREFIX + `VIDEO ERROR: ${assetId} | ${e.message}`);
               if (i < urls.length - 1) continue;
-              Log.warn(LOG_PREFIX + 'video route error: ' + e.message);
               res.status(502).end();
               return;
             }
           }
+          Log.warn(LOG_PREFIX + `VIDEO NO SOURCE: ${assetId} | no transcoded stream available`);
+          res.status(404).end();
         });
         this._videoProxySetup = true;
       }

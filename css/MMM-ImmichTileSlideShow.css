@@ -47,6 +47,8 @@
   will-change: transform;
   pointer-events: auto;
   touch-action: manipulation;
+  /* Reduce paint overhead - isolate layout/style/paint from rest of page */
+  contain: layout style paint;
 }
 
 .immich-tiles-wrapper.credits-mode {

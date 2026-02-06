@@ -517,10 +517,23 @@ Module.register("MMM-ImmichTileSlideShow", {
         // place into media container
         const media = tile.querySelector('.immich-tile-media') || tile;
         media.appendChild(vidEl);
+
+        // Add error logging for video playback issues
+        vidEl.onerror = () => {
+          const err = vidEl.error;
+          const errMsg = err ? `code=${err.code} message=${err.message}` : 'unknown error';
+          Log.error(`MMM-ImmichTileSlideShow: VIDEO PLAYBACK ERROR | src: ${vidEl.src} | ${errMsg}`);
+        };
+        vidEl.onstalled = () => {
+          Log.warn(`MMM-ImmichTileSlideShow: VIDEO STALLED | src: ${vidEl.src}`);
+        };
       }
       // set sources/poster
       if (image.posterSrc) vidEl.poster = image.posterSrc;
-      if (vidEl.src !== image.src) vidEl.src = image.src;
+      if (vidEl.src !== image.src) {
+        Log.info(`MMM-ImmichTileSlideShow: VIDEO LOADING | src: ${image.src}`);
+        vidEl.src = image.src;
+      }
       // hide the background image layer
       imgEl.style.backgroundImage = image.posterSrc ? `url('${image.posterSrc}')` : '';
       // Play with concurrency guard
@@ -528,11 +541,12 @@ Module.register("MMM-ImmichTileSlideShow", {
       if (canPlay && this.config.videoAutoplay) {
         // Attempt playback
         vidEl.play().then(() => {
+          Log.info(`MMM-ImmichTileSlideShow: VIDEO PLAYING | src: ${vidEl.src}`);
           this._activeVideoCount++;
           vidEl.onended = () => { this._activeVideoCount = Math.max(0, this._activeVideoCount - 1); };
           vidEl.onpause = () => { this._activeVideoCount = Math.max(0, this._activeVideoCount - 1); };
-        }).catch(() => {
-          // Autoplay may be blocked; show poster background
+        }).catch((e) => {
+          Log.warn(`MMM-ImmichTileSlideShow: VIDEO PLAY FAILED | src: ${vidEl.src} | ${e.message}`);
         });
       }
     } else {
