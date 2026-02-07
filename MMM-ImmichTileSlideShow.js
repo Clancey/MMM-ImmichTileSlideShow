@@ -57,6 +57,7 @@ Module.register("MMM-ImmichTileSlideShow", {
     // Immich (optional)
     immichConfigs: [], // array of Immich config objects (similar to MMM-ImmichSlideShow)
     activeImmichConfigIndex: 0,
+    refreshIntervalMinutes: 30, // how often to fetch new images from Immich (0 disables)
     validImageFileExtensions: "jpg,jpeg,png,gif,webp,heic",
     validVideoFileExtensions: "mp4,mov,m4v,webm,avi,mkv,3gp",
     enableVideos: true,
@@ -207,17 +208,26 @@ Module.register("MMM-ImmichTileSlideShow", {
    */
   socketNotificationReceived(notification, payload) {
     if (notification === "IMMICH_TILES_DATA" && payload && Array.isArray(payload.images)) {
-      this.log("received images:", payload.images.length);
+      const isRefresh = this._started;
+      this.log(isRefresh ? "refreshed images:" : "received images:", payload.images.length);
       this.images = payload.images;
       this._splitMedia();
+      // Reset indices to start fresh with new pool
+      this._nextImageIndex = 0;
+      this._nextVideoIndex = 0;
       this._cadenceIndex = 0;
       this._cadenceSeq = null;
-      this._fillTilesInitial();
-      this._startRotation();
+      // Only do initial fill animation on first load
+      if (!isRefresh) {
+        this._fillTilesInitial();
+        this._startRotation();
+      }
       this._started = true;
-      this._setDebugText(`media: ${this._imagePool.length} img, ${this._videoPool.length} vid`);
-      this._recalculateTiles();
-      this._maybeStartScroll();
+      this._setDebugText(`media: ${this._imagePool.length} img, ${this._videoPool.length} vid${isRefresh ? ' (refreshed)' : ''}`);
+      if (!isRefresh) {
+        this._recalculateTiles();
+        this._maybeStartScroll();
+      }
     }
   },
 
@@ -258,7 +268,7 @@ Module.register("MMM-ImmichTileSlideShow", {
     }
   },
 
-  // (No active refresh request; media refresh is driven by config changes or module restarts)
+  // Media refresh is handled by node_helper via refreshIntervalMinutes config
 
   /**
    * Create a tile element with inner structure.

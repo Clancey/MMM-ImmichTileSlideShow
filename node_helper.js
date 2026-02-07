@@ -40,6 +40,7 @@ module.exports = NodeHelper.create({
 
   start() {
     this.config = null;
+    this._refreshTimer = null;
     Log.info(LOG_PREFIX + "started");
     try {
       // Ensure a PNG screenshot exists for README reference (generated locally)
@@ -76,12 +77,40 @@ module.exports = NodeHelper.create({
           Log.error(LOG_PREFIX + "Immich load failed: " + e.message);
           this._sendInitialImages();
         });
+        // Set up periodic refresh if configured
+        this._setupRefreshTimer();
       } else {
         this._sendInitialImages();
       }
       return;
     }
-    // No periodic refresh path; refresh occurs on module restart or config changes
+  },
+
+  /**
+   * Set up periodic refresh timer to fetch new images from Immich
+   */
+  _setupRefreshTimer() {
+    // Clear any existing timer
+    if (this._refreshTimer) {
+      clearInterval(this._refreshTimer);
+      this._refreshTimer = null;
+    }
+
+    const minutes = Number(this.config.refreshIntervalMinutes) || 30;
+    if (minutes <= 0) {
+      Log.info(LOG_PREFIX + "Periodic refresh disabled (refreshIntervalMinutes <= 0)");
+      return;
+    }
+
+    const intervalMs = minutes * 60 * 1000;
+    Log.info(LOG_PREFIX + `Setting up periodic refresh every ${minutes} minutes`);
+
+    this._refreshTimer = setInterval(() => {
+      Log.info(LOG_PREFIX + "Refreshing images from Immich...");
+      _loadFromImmichImpl(this).catch((e) => {
+        Log.error(LOG_PREFIX + "Immich refresh failed: " + e.message);
+      });
+    }, intervalMs);
   },
 
   /**
