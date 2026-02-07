@@ -36,8 +36,8 @@ const immichApi = {
       assetOriginal: '/assets/{id}/original',
       serverInfoUrl: '/server-info/version',
       search: 'NOT SUPPORTED',
-      // Use Immich's encoded video stream endpoint to reduce client load
-      videoStream: '/assets/{id}/video'
+      // Use Immich's playback endpoint for transcoded video
+      videoStream: '/assets/{id}/video/playback'
     },
     v1_118: {
       previousVersion: 'v1_106',
@@ -51,8 +51,8 @@ const immichApi = {
       assetOriginal: '/assets/{id}/original',
       serverInfoUrl: '/server/version',
       search: '/search/smart',
-      // Use Immich's encoded video stream endpoint to reduce client load
-      videoStream: '/assets/{id}/video'
+      // Use Immich's playback endpoint for transcoded video
+      videoStream: '/assets/{id}/video/playback'
     },
     v1_133: {
       previousVersion: 'v1_118',
@@ -67,8 +67,8 @@ const immichApi = {
       serverInfoUrl: '/server/version',
       search: '/search/smart',
       randomSearch: '/search/random',
-      // Use Immich's encoded video stream endpoint to reduce client load
-      videoStream: '/assets/{id}/video'
+      // Use Immich's playback endpoint for transcoded video
+      videoStream: '/assets/{id}/video/playback'
     }
   },
 
@@ -194,10 +194,11 @@ const immichApi = {
           if (conf.videoStream) urls.push(conf.videoStream.replace('{id}', assetId));
           if (conf.assetOriginal) urls.push(conf.assetOriginal.replace('{id}', assetId));
 
-          Log.info(LOG_PREFIX + `VIDEO REQUEST: ${assetId}`);
+          Log.info(LOG_PREFIX + `VIDEO REQUEST: ${assetId} | trying endpoints: ${urls.join(', ')}`);
 
           for (let i = 0; i < urls.length; i++) {
             const p = urls[i];
+            Log.info(LOG_PREFIX + `VIDEO TRYING: ${assetId} | ${p}`);
             try {
               const headers = { Accept: req.headers['accept'] || '*/*' };
               if (req.headers['range']) headers['Range'] = req.headers['range'];
@@ -208,6 +209,17 @@ const immichApi = {
               if ((upstream.status >= 200 && upstream.status < 300) || upstream.status === 304) {
                 const contentType = upstream.headers['content-type'] || 'unknown';
                 const contentLength = upstream.headers['content-length'] || 'unknown';
+
+                // Skip non-MP4 formats that won't play on Raspberry Pi / Chromium
+                const unplayableFormats = ['video/quicktime', 'video/x-matroska', 'video/x-msvideo', 'video/webm'];
+                if (unplayableFormats.includes(contentType)) {
+                  Log.warn(LOG_PREFIX + `VIDEO SKIPPED: ${assetId} | type: ${contentType} (unplayable format, needs Immich transcoding)`);
+                  // Try next URL (if any) or return 415 Unsupported Media Type
+                  if (i < urls.length - 1) continue;
+                  res.status(415).end();
+                  return;
+                }
+
                 Log.info(LOG_PREFIX + `VIDEO SUCCESS: ${assetId} | type: ${contentType} | size: ${contentLength}`);
 
                 for (const [k, v] of Object.entries(upstream.headers || {})) {
