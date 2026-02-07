@@ -139,6 +139,7 @@ Module.register("MMM-ImmichTileSlideShow", {
     this._sizeCache = new Map();
     this._sizeCacheTimer = null;
     this._initialFilled = false;
+    this._originalOverlayOpacity = this._normalizeOpacity(this.config.overlayOpacity);
 
     // Lightweight mode: no client-side behavioral changes beyond Immich asset preference.
 
@@ -217,6 +218,43 @@ Module.register("MMM-ImmichTileSlideShow", {
       this._setDebugText(`media: ${this._imagePool.length} img, ${this._videoPool.length} vid`);
       this._recalculateTiles();
       this._maybeStartScroll();
+    }
+  },
+
+  /**
+   * Handle notifications from other modules.
+   * @param {string} notification
+   * @param {any} payload
+   */
+  notificationReceived(notification, payload) {
+    if (notification === "TOUCH_UI_HIDDEN" && payload) {
+      // When UI is hidden, set overlay opacity to 0; restore when shown
+      const newOpacity = payload.hidden ? 0 : this._originalOverlayOpacity;
+      this._setOverlayOpacity(newOpacity);
+    }
+  },
+
+  /**
+   * Normalize overlay opacity value to 0-1 range
+   * @param {number} value
+   * @returns {number}
+   */
+  _normalizeOpacity(value) {
+    let ov = Number(value);
+    if (Number.isFinite(ov)) {
+      if (ov > 1) ov = ov / 100;
+      return Math.max(0, Math.min(1, ov));
+    }
+    return 0.25;
+  },
+
+  /**
+   * Set the overlay opacity dynamically
+   * @param {number} opacity - value between 0 and 1
+   */
+  _setOverlayOpacity(opacity) {
+    if (this._root) {
+      this._root.style.setProperty('--mmmitss-overlay', String(opacity));
     }
   },
 
