@@ -57,7 +57,7 @@ Module.register("MMM-ImmichTileSlideShow", {
     // Immich (optional)
     immichConfigs: [], // array of Immich config objects (similar to MMM-ImmichSlideShow)
     activeImmichConfigIndex: 0,
-    refreshIntervalMinutes: 30, // how often to fetch new images from Immich (0 disables)
+    refreshIntervalMinutes: 60, // how often to fetch new images from Immich (0 or negative disables)
     validImageFileExtensions: "jpg,jpeg,png,gif,webp,heic",
     validVideoFileExtensions: "mp4,mov,m4v,webm,avi,mkv,3gp",
     enableVideos: true,
@@ -71,6 +71,9 @@ Module.register("MMM-ImmichTileSlideShow", {
     videoLoop: true,
     videoPreload: "metadata", // none | metadata | auto
     videoMaxConcurrent: 1,
+
+    // Performance
+    disableMosaicSpans: false, // Set to true to use uniform 1x1 tiles (reduces CPU on Pi)
 
     // Styling
     backgroundColor: "#000",
@@ -756,6 +759,8 @@ Module.register("MMM-ImmichTileSlideShow", {
    * @param {string} src
    */
   _applyMosaicSpans(tile, src) {
+    // Skip mosaic spans if disabled (reduces CPU on low-power devices)
+    if (this.config.disableMosaicSpans) return;
     // Do not override featured tile sizing
     if (tile && tile.dataset && tile.dataset.featured === '1') return;
     // Accept either a full image object (with potential w/h) or a src string
@@ -832,9 +837,26 @@ Module.register("MMM-ImmichTileSlideShow", {
   },
 
   _recalculateTiles() {
-    if (!this._container || this.config.autoLayout === false) return;
+    if (!this._container) return;
     // Update CSS variables for layout based on container size
     this._updateLayoutVars();
+
+    // For fixed layout, use tileCols * tileRows
+    if (this.config.autoLayout === false) {
+      const cols = Math.max(1, Number(this.config.tileCols) || 3);
+      const rows = Math.max(1, Number(this.config.tileRows) || 2);
+      const needed = cols * rows;
+      const added = this._ensureTileCapacity(needed);
+      if (added > 0 && this.images) {
+        for (let i = this.tileEls.length - added; i < this.tileEls.length; i++) {
+          const tile = this.tileEls[i];
+          const media = (this.images && this.images.length) ? this._nextImage() : this._placeholderImage(i);
+          this._applyTile(tile, media);
+        }
+      }
+      this._trimTileCapacity(needed);
+      return;
+    }
     const m = this._computeLayoutMetrics();
     if (!m) return;
     let needed;
