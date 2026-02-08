@@ -210,6 +210,12 @@ Module.register("MMM-ImmichTileSlideShow", {
     if (notification === "IMMICH_TILES_DATA" && payload && Array.isArray(payload.images)) {
       const isRefresh = this._started;
       this.log(isRefresh ? "refreshed images:" : "received images:", payload.images.length);
+      // Clear old data before assigning new to help garbage collection
+      if (isRefresh) {
+        this.images = null;
+        this._imagePool = null;
+        this._videoPool = null;
+      }
       this.images = payload.images;
       this._splitMedia();
       // Reset indices to start fresh with new pool

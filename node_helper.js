@@ -41,6 +41,8 @@ module.exports = NodeHelper.create({
   start() {
     this.config = null;
     this._refreshTimer = null;
+    this._refreshInProgress = false;
+    this._initialized = false;
     Log.info(LOG_PREFIX + "started");
     try {
       // Ensure a PNG screenshot exists for README reference (generated locally)
@@ -73,7 +75,10 @@ module.exports = NodeHelper.create({
         querySize: immichCfg.querySize
       });
       if (Array.isArray(this.config.immichConfigs) && this.config.immichConfigs.length > 0) {
-        _loadFromImmichImpl(this).catch((e) => {
+        // First load - force init the API
+        _loadFromImmichImpl(this, true).then(() => {
+          this._initialized = true;
+        }).catch((e) => {
           Log.error(LOG_PREFIX + "Immich load failed: " + e.message);
           this._sendInitialImages();
         });
@@ -96,18 +101,35 @@ module.exports = NodeHelper.create({
       this._refreshTimer = null;
     }
 
-    const minutes = Number(this.config.refreshIntervalMinutes) || 30;
-    if (minutes <= 0) {
-      Log.info(LOG_PREFIX + "Periodic refresh disabled (refreshIntervalMinutes <= 0)");
+    // Default to 60 minutes, minimum 10 minutes to avoid overwhelming Pi
+    let minutes = Number(this.config.refreshIntervalMinutes);
+    if (isNaN(minutes) || minutes === 0) {
+      minutes = 60; // default
+    }
+    if (minutes < 0) {
+      Log.info(LOG_PREFIX + "Periodic refresh disabled (refreshIntervalMinutes < 0)");
       return;
+    }
+    if (minutes > 0 && minutes < 10) {
+      Log.warn(LOG_PREFIX + `refreshIntervalMinutes ${minutes} is too low, using 10 minutes minimum`);
+      minutes = 10;
     }
 
     const intervalMs = minutes * 60 * 1000;
     Log.info(LOG_PREFIX + `Setting up periodic refresh every ${minutes} minutes`);
 
     this._refreshTimer = setInterval(() => {
+      // Guard against overlapping refreshes
+      if (this._refreshInProgress) {
+        Log.info(LOG_PREFIX + "Skipping refresh - previous refresh still in progress");
+        return;
+      }
+      this._refreshInProgress = true;
       Log.info(LOG_PREFIX + "Refreshing images from Immich...");
-      _loadFromImmichImpl(this).catch((e) => {
+      _loadFromImmichImpl(this, false).then(() => {
+        this._refreshInProgress = false;
+      }).catch((e) => {
+        this._refreshInProgress = false;
         Log.error(LOG_PREFIX + "Immich refresh failed: " + e.message);
       });
     }, intervalMs);
@@ -224,8 +246,10 @@ function shuffle(list) {
 
 /**
  * Fetch images from Immich and send to client
+ * @param {object} context - NodeHelper context
+ * @param {boolean} forceInit - Whether to force re-initialize the API (true on first load, false on refresh)
  */
-async function _loadFromImmichImpl(context) {
+async function _loadFromImmichImpl(context, forceInit = true) {
   // Lazy-require the API dep only when needed
   const immichApi = require('./immichApi.js');
   const cfg = normalizeImmichConfig(context.config);
@@ -256,8 +280,8 @@ async function _loadFromImmichImpl(context) {
 
   // toggle immichApi debug passthrough
   immichApi.debugOn = !!(context.config && context.config.debug);
-  // Prefer thumbnail-sized assets when lightweightMode is enabled; fallback to original
-  await immichApi.init({ ...cfg, preferThumbnail: !!(context.config && context.config.lightweightMode) }, context.expressApp, true);
+  // Only force re-init on first load; reuse existing client on refresh to avoid memory leaks
+  await immichApi.init({ ...cfg, preferThumbnail: !!(context.config && context.config.lightweightMode) }, context.expressApp, forceInit);
   dlog(context, 'api level resolved', immichApi.apiLevel);
 
   let images = [];
