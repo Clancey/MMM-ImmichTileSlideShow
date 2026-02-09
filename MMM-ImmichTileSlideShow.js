@@ -135,9 +135,11 @@ Module.register("MMM-ImmichTileSlideShow", {
     this._nextImageIndex = 0;
     this._nextVideoIndex = 0;
     this._started = false;
+    this._paused = false;
     this._activeVideoCount = 0;
     this._imagePool = [];
     this._videoPool = [];
+    this._visibleSrcs = new Set();
     this._cadenceIndex = 0;
     this._cadenceSeq = null;
     this._sizeCache = new Map();
@@ -253,6 +255,16 @@ Module.register("MMM-ImmichTileSlideShow", {
     }
     if (notification === "IMMICH_ASSET_DELETED" && payload && payload.assetId) {
       this._removeAssetFromPools(payload.assetId);
+    }
+    if (notification === "SLIDESHOW_PAUSE") {
+      this._paused = true;
+      if (this._rotationTimer) { clearInterval(this._rotationTimer); this._rotationTimer = null; }
+      this.log('slideshow paused');
+    }
+    if (notification === "SLIDESHOW_RESUME") {
+      this._paused = false;
+      this._startRotation();
+      this.log('slideshow resumed');
     }
   },
 
@@ -471,9 +483,10 @@ Module.register("MMM-ImmichTileSlideShow", {
    * Begin rotating a single random tile at each interval.
    */
   _startRotation() {
+    if (this._paused) return;
     if (this._rotationTimer) clearInterval(this._rotationTimer);
     this._rotationTimer = setInterval(() => {
-      if (!this.tileEls.length) return;
+      if (!this.tileEls.length || this._paused) return;
       const media = this.images && this.images.length ? this._nextImage() : this._placeholderImage(0);
       let tile = null;
       if (media && media.kind === 'video' && this.config.enableVideos) {
@@ -500,19 +513,39 @@ Module.register("MMM-ImmichTileSlideShow", {
     if (!hasImages && !hasVideos) return this._placeholderImage(0);
     const kind = this._selectMediaKind();
     if (kind === 'video' && hasVideos) {
-      const v = this._videoPool[this._nextVideoIndex % this._videoPool.length];
-      this._nextVideoIndex = (this._nextVideoIndex + 1) % this._videoPool.length;
-      return v;
+      return this._pickFromPool(this._videoPool, '_nextVideoIndex');
     }
     if (hasImages) {
-      const im = this._imagePool[this._nextImageIndex % this._imagePool.length];
-      this._nextImageIndex = (this._nextImageIndex + 1) % this._imagePool.length;
-      return im;
+      return this._pickFromPool(this._imagePool, '_nextImageIndex');
     }
     // fallback to videos if no images
-    const v = this._videoPool[this._nextVideoIndex % this._videoPool.length];
-    this._nextVideoIndex = (this._nextVideoIndex + 1) % this._videoPool.length;
-    return v;
+    return this._pickFromPool(this._videoPool, '_nextVideoIndex');
+  },
+
+  /**
+   * Pick the next item from a pool, skipping items already visible on screen.
+   * Falls back to allowing duplicates if pool is smaller than visible tile count.
+   */
+  _pickFromPool(pool, indexKey) {
+    if (!pool || !pool.length) return this._placeholderImage(0);
+    const len = pool.length;
+    const tileCount = this.tileEls ? this.tileEls.length : 0;
+    // If pool is smaller than or equal to tile count, duplicates are unavoidable
+    if (len <= tileCount) {
+      const item = pool[this[indexKey] % len];
+      this[indexKey] = (this[indexKey] + 1) % len;
+      return item;
+    }
+    // Try up to pool.length times to find a non-visible item
+    for (let attempt = 0; attempt < len; attempt++) {
+      const item = pool[this[indexKey] % len];
+      this[indexKey] = (this[indexKey] + 1) % len;
+      if (!this._visibleSrcs || !this._visibleSrcs.has(item.src)) {
+        return item;
+      }
+    }
+    // All items visible (shouldn't happen), return current
+    return pool[this[indexKey] % len];
   },
 
   _splitMedia() {
@@ -577,6 +610,16 @@ Module.register("MMM-ImmichTileSlideShow", {
     let vidEl = tile.querySelector("video.immich-tile-video");
     const capEl = tile.querySelector(".immich-tile-caption");
     if (!imgEl || !capEl) return;
+
+    // Track visible sources for dedup: remove old src, add new
+    if (this._visibleSrcs) {
+      const oldSrc = tile.dataset && tile.dataset.currentSrc;
+      if (oldSrc) this._visibleSrcs.delete(oldSrc);
+      if (image && image.src) {
+        this._visibleSrcs.add(image.src);
+        tile.dataset.currentSrc = image.src;
+      }
+    }
 
     // Tear down any prior video element if switching kinds
     if (vidEl && image.kind !== 'video') {
