@@ -275,6 +275,52 @@ const immichApi = {
         });
         this._previewProxySetup = true;
       }
+
+      // Asset info route - returns full asset JSON with EXIF, people, etc.
+      if (!this._infoProxySetup) {
+        expressApp.get('/immichtilesslideshow-info/:id', async (req, res) => {
+          const assetId = req.params.id;
+          try {
+            const url = this.apiUrls[this.apiLevel].assetInfo.replace('{id}', assetId);
+            const upstream = await this.http.get(url, { responseType: 'json' });
+            if (upstream.status >= 200 && upstream.status < 300) {
+              res.json(upstream.data);
+            } else {
+              res.status(upstream.status).json({ error: 'Immich returned ' + upstream.status });
+            }
+          } catch (e) {
+            Log.warn(LOG_PREFIX + 'info route error: ' + e.message);
+            res.status(502).json({ error: e.message });
+          }
+        });
+        this._infoProxySetup = true;
+      }
+
+      // Delete/trash route - moves asset to Immich trash
+      if (!this._deleteProxySetup) {
+        expressApp.delete('/immichtilesslideshow-delete/:id', async (req, res) => {
+          const assetId = req.params.id;
+          try {
+            const upstream = await this.http.request({
+              method: 'DELETE',
+              url: '/assets',
+              data: { ids: [assetId] },
+              headers: { 'Content-Type': 'application/json' },
+              responseType: 'json'
+            });
+            if (upstream.status >= 200 && upstream.status < 300) {
+              res.json({ success: true });
+            } else {
+              res.status(upstream.status).json({ error: 'Immich returned ' + upstream.status });
+            }
+          } catch (e) {
+            Log.warn(LOG_PREFIX + 'delete route error: ' + e.message);
+            res.status(502).json({ error: e.message });
+          }
+        });
+        this._deleteProxySetup = true;
+      }
+
       if (this.debugOn) Log.info(LOG_PREFIX + '[debug] Server API level -> ' + this.apiLevel);
       else Log.debug(LOG_PREFIX + 'Server API level -> ' + this.apiLevel);
     }

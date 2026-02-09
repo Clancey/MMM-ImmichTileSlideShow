@@ -251,6 +251,34 @@ Module.register("MMM-ImmichTileSlideShow", {
       const newOpacity = payload.hidden ? 0 : this._originalOverlayOpacity;
       this._setOverlayOpacity(newOpacity);
     }
+    if (notification === "IMMICH_ASSET_DELETED" && payload && payload.assetId) {
+      this._removeAssetFromPools(payload.assetId);
+    }
+  },
+
+  _removeAssetFromPools(assetId) {
+    if (!assetId) return;
+    const matchesSrc = (item) => item && item.src && item.src.indexOf(assetId) !== -1;
+
+    // Filter from all pools
+    if (this.images) this.images = this.images.filter((m) => !matchesSrc(m));
+    if (this._imagePool) this._imagePool = this._imagePool.filter((m) => !matchesSrc(m));
+    if (this._videoPool) this._videoPool = this._videoPool.filter((m) => !matchesSrc(m));
+
+    // Replace any visible tile currently showing the deleted asset
+    if (this.tileEls && this.tileEls.length) {
+      for (const tile of this.tileEls) {
+        const imgEl = tile.querySelector('.immich-tile-img');
+        const vidEl = tile.querySelector('video.immich-tile-video');
+        const bgImage = imgEl ? (imgEl.style.backgroundImage || '') : '';
+        const vidSrc = vidEl ? (vidEl.src || '') : '';
+        if (bgImage.indexOf(assetId) !== -1 || vidSrc.indexOf(assetId) !== -1) {
+          const replacement = (this.images && this.images.length) ? this._nextImage() : this._placeholderImage(0);
+          this._applyTile(tile, replacement, true);
+        }
+      }
+    }
+    this.log('removed asset from pools:', assetId);
   },
 
   /**
