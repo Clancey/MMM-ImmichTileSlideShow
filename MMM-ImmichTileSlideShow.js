@@ -57,7 +57,7 @@ Module.register("MMM-ImmichTileSlideShow", {
     // Immich (optional)
     immichConfigs: [], // array of Immich config objects (similar to MMM-ImmichSlideShow)
     activeImmichConfigIndex: 0,
-    refreshIntervalMinutes: 60, // how often to fetch new images from Immich (0 or negative disables)
+    refreshIntervalMinutes: 30, // how often to fetch new images from Immich (0 or negative disables)
     validImageFileExtensions: "jpg,jpeg,png,gif,webp,heic",
     validVideoFileExtensions: "mp4,mov,m4v,webm,avi,mkv,3gp",
     enableVideos: true,
